@@ -15,7 +15,7 @@ maskinstenografi, alltså en klassifiering av ackord/ord. Detta ska genomföras 
 ordbildning inom stenografin, och filtrering på vilka regler som ledde till ett ord.
 
 
-För ett program som detta förväntas också i allmänhet en bra algoritm för att presentera nya övningar baserat på
+För ett program som detta förväntas också i allmänhet en *bra* algoritm för att presentera nya övningar baserat på
 resultat från gamla övningar, och att ordkombinationer som presenteras inte ska vara förolämpande för användaren. Detta
 utelämnas som krav från denna specifikation i syfte att begränsa uppgiftens omfattning - jag anser också att det
 viktigaste är att man kan välja vilka ordbildningsregler man ska träna.
@@ -23,7 +23,7 @@ viktigaste är att man kan välja vilka ordbildningsregler man ska träna.
 
 ## Användarscenarier
 
-### Scenario 1
+### Val av regler att träna
 Användaren vill träna de mest grundläggande reglerna för stenografi, och
 startar därför programmet. Då presenteras övningar som användaren tycker är
 alldeles för svåra. Användaren går därför in i inställningarna, och avmarkerar
@@ -31,7 +31,7 @@ rutor för de mer avancerade reglerna. Därefter genomför användaren de nya
 genererade övningarna.
 
 
-### Scenario 2
+### Regelbunden träning
 Användaren har någon kvart över i sitt livspussel och startar därför
 träningsprogrammet för att lära sig lite mer maskinstenografi. Då presenteras
 omedelbart övningar efter inställnigarna som tidigare gjorts i programmet.
