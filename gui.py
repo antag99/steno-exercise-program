@@ -1,10 +1,11 @@
-
-
+import functools
 import tkinter as tk
 import tkinter.ttk as ttk
+import tkinter.font as tk_font
 
 from collections import namedtuple
 from enum import IntEnum, unique
+import time
 
 
 @unique
@@ -73,6 +74,12 @@ A chord is a set of keys pressed simultaneously.
 Chord = namedtuple('Chord', 'keys')
 
 
+"""
+A stroke is a list of chords that together form a word.
+"""
+Stroke = namedtuple('Stroke', 'chord_sequence written_word')
+
+
 class StenoMachinePreview(ttk.Frame):
     """
     Shows a steno machine view, highlighting the keys that should be pressed to complete the current word.
@@ -121,16 +128,163 @@ class StenoMachinePreview(ttk.Frame):
             self.canvas.itemconfigure(key_square, fill='yellow' if key in chord.keys else 'gray')
 
 
-class StenoAppliation(tk.Tk):
-    def __init__(self):
-        super(StenoAppliation, self).__init__()
+class StenoExerciseFrame(ttk.Frame):
+    """
+    Presents an exercise to the user and records the progress made.
+    """
+    def __init__(self, parent, listener):
+        """
+        Setups the exercise frame.
 
-        self.preview = StenoMachinePreview(self)
-        self.preview.pack()
+        :param parent: the parent widget
+        :param listener: object that will receive callbacks for exercise events.
+        """
+        super().__init__(parent)
+
+        self.words = []
+        self.word_i = 0
+
+        # the tk.Text widget can host any widgets in a flow layout, which we exploit here
+        self.words_flow_container = tk.Text(self)
+        self.words_flow_container.pack()
+
+        # self.preview = StenoMachinePreview(self)
+        # self.preview.pack()
+
+        style = ttk.Style()
+        style.configure("Exercise.TLabel", foreground="black", background="white", font=('SansBold', 16))
+        style.configure("Exercise.TEntry", foreground="black", background="white",
+                        fieldbackground="white", borderwidth=0)
+        style.configure("Exercise.TFrame", foreground="white", background="white")
+        style.map("Exercise.TEntry", fieldbackground=[('disabled', 'white')], foreground=[('disabled', 'black')])
+
+        self.listener = listener
+
+    class WordInExercise(ttk.Frame):
+        def __init__(self,
+                     exercise_frame,
+                     index,
+                     stroke):
+            super().__init__(exercise_frame, style="Exercise.TFrame")
+
+            self.exercise_frame = exercise_frame
+
+            self.index = index
+            self.stroke = stroke
+
+            self._label = ttk.Label(self, text=" " + stroke.written_word, style="Exercise.TLabel")
+            self._label.pack(ipadx=0, ipady=2)
+            self._text_entry_var = tk.StringVar(self, "", name="word_var_{}".format(index))
+            self._text_entry = ttk.Entry(self,
+                                         textvariable=self._text_entry_var,
+                                         style="Exercise.TEntry",
+                                         state=tk.DISABLED,
+                                         validate="key",
+                                         width=0,  # assign width based on label width
+                                         font=('SansBold', 16))
+            # self._text_entry.configure(validatecommand=(self.register(self._on_validate), "%s"))
+            self._text_entry.pack(fill=tk.X, expand=False)
+            self._text_entry_var.trace("w", self._on_change)
+
+            self.incorrectly_typed = False
+            self.finished = False
+            self.is_first_word = False
+            self.finish_time = 0
+
+        @property
+        def text_to_type(self):
+            """Text that is emitted by a keyboard when the word is typed correctly. This is the text in the dictionary
+            preceded by a whitespace."""
+            return f" {self.stroke.written_word}"
+
+        @property
+        def is_active(self):
+            return self.index == self.exercise_frame.word_i
+
+        def begin(self):
+            self.exercise_frame.word_i = self.index
+            self._text_entry.config(state=tk.NORMAL)
+            self._text_entry.focus()
+            self._text_entry.icursor(len(self._text_entry_var.get()))
+
+        def _on_change(self, *_):
+            self.on_contents_update()
+
+        def on_contents_update(self):
+            new_contents = self._text_entry_var.get()
+            is_last = self.index + 1 == len(self.exercise_frame.words)
+
+            n_typed_chars = len(new_contents)
+            # correctly_typed reflects whether the contents so far is typed correctly,
+            # so it only compares the contents to the beginning of the text to type.
+            correctly_typed = new_contents == f"{self.text_to_type} "[:len(new_contents)]
+            # chars to be typed before we can conclude the current word is typed correctly.
+            # this is both the text to type in this word, as well as a whitespace that follows.
+            remaining_chars_to_type = len(self.text_to_type) + 1 - n_typed_chars
+            # we take time to the point where the complete word is typed. we cannot know that it is correctly typed
+            # before we receive a whitespace beginning the next word.
+            completely_typed = correctly_typed and remaining_chars_to_type <= 1
+            # we advance to the next word once the first whitespace after this word is received, or if this is the last
+            # word.
+            advance_to_next_word = completely_typed and remaining_chars_to_type <= 0 or is_last
+
+            if not correctly_typed:
+                self.incorrectly_typed = True
+                self.finished = False
+            elif completely_typed:
+                if not self.finished:
+                    self.finish_time = time.monotonic()
+                if advance_to_next_word:
+                    overflown_content = new_contents[len(self.text_to_type):]
+                    if len(overflown_content) > 0 and is_last:
+                        self.incorrectly_typed = True
+                    else:
+                        self._text_entry.config(state=tk.DISABLED)
+                        self._text_entry_var.set(self.text_to_type)
+                        if is_last:
+                            print("Finished, yay!")
+                        else:
+                            next_word = self.exercise_frame.words[self.index + 1]
+                            next_word.set_overflown_content(overflown_content)
+                            next_word.begin()
+
+        def set_overflown_content(self, contents_to_set):
+            self._text_entry_var.set(contents_to_set)
+            self.on_contents_update()
+
+    def start_session(self):
+        """
+        Starts the exercise session, will initiate monitoring of user strokes.
+        """
+
+    def end_session(self):
+        """
+        Ends the exercise session.
+        """
+
+    def set_exercise(self, strokes):
+        """
+        Sets a new exercise consisting of the given strokes.
+        """
+        for i, stroke in enumerate(strokes):
+            word = self.WordInExercise(self, i, stroke)
+            self.words_flow_container.window_create(tk.INSERT, window=word)
+            self.words.append(word)
+        self.words_flow_container.configure(state=tk.DISABLED)
+        self.words[0].begin()
+
+
+class StenoApplication(tk.Tk):
+    def __init__(self):
+        super(StenoApplication, self).__init__()
+
+        self.exercise_frame = StenoExerciseFrame(self, self)
+        self.exercise_frame.set_exercise([Stroke([], 'test'),Stroke([], 'test'),Stroke([], 'test'),Stroke([], 'test'),])
+        self.exercise_frame.pack()
 
         # self.preview.set_chord(Chord(keys=[StenoKeys.S_L, StenoKeys.K_L, StenoKeys.P_L]))
         # self.preview.set_chord(Chord(keys=[StenoKeys.R_L, StenoKeys.O, StenoKeys.R_R]))
 
 
 if __name__ == "__main__":
-    StenoAppliation().mainloop()
+    StenoApplication().mainloop()
