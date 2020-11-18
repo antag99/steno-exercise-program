@@ -7,6 +7,11 @@ from collections import namedtuple
 from enum import IntEnum, unique
 import time
 
+from learn_plover import *
+import json
+from random import Random
+from collections import defaultdict
+
 
 @unique
 class StenoKeys(IntEnum):
@@ -35,6 +40,15 @@ class StenoKeys(IntEnum):
     G_R = 19
     S_R = 20
     Z_R = 21
+
+    @property
+    def order(self):
+        left_half_order = "STKPWHRAO*"
+        right_half_order = "EUFRPBLGTSDZ"
+        if self.value <= self.STAR:
+            return left_half_order.index(self.letter)
+        else:
+            return len(left_half_order) + right_half_order.index(self.letter)
 
     @property
     def letter(self):
@@ -278,13 +292,50 @@ class StenoApplication(tk.Tk):
     def __init__(self):
         super(StenoApplication, self).__init__()
 
+        with open("data/main.json", "r") as f:
+            self.steno_dict = json.load(f)
+
+        self.reverse_dict = defaultdict(list)
+        for chord, word in self.steno_dict.items():
+            self.reverse_dict[word].append(chord)
+
         self.exercise_frame = StenoExerciseFrame(self, self)
-        self.exercise_frame.set_exercise([Stroke([], 'test'),Stroke([], 'test'),Stroke([], 'test'),Stroke([], 'test'),])
+        self._generate_exercise()
         self.exercise_frame.pack()
 
         # self.preview.set_chord(Chord(keys=[StenoKeys.S_L, StenoKeys.K_L, StenoKeys.P_L]))
         # self.preview.set_chord(Chord(keys=[StenoKeys.R_L, StenoKeys.O, StenoKeys.R_R]))
 
+    def _generate_exercise(self):
+        exercise_length = 10
+        all_plover_words = []
+        for lesson in learn_plover_lessons:
+            all_plover_words += learn_plover_lesson_words[lesson]
+
+        random = Random()
+        exercise = []
+        for i in range(0, exercise_length):
+            word = random.choice(all_plover_words)
+            stroke = self.reverse_dict[word][0]
+
+            chords = []
+            for chord in stroke.split("/"):
+                min_order = -1
+                keys = set()
+                for letter in chord:
+                    if letter == "-":
+                        min_order = StenoKeys.STAR
+                    else:
+                        matching_key = None
+                        for key in StenoKeys.__members__.values():
+                            if key.letter == letter and key.order > min_order and \
+                                    (matching_key is None or matching_key.order > key.order):
+                                matching_key = key
+                        assert matching_key is not None
+                        keys.add(matching_key)
+                chords.append(Chord(keys))
+            exercise.append(Stroke(chords, word))
+        self.exercise_frame.set_exercise(exercise)
 
 if __name__ == "__main__":
     StenoApplication().mainloop()
