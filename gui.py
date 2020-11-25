@@ -132,7 +132,6 @@ class StenoMachinePreview(ttk.Frame):
             self.canvas.create_text((begin_x + end_x) * 0.5, (begin_y + end_y) * 0.5, text=key.letter)
             self.keys.append((key, key_square))
 
-
     def set_chord(self, chord: Chord):
         """
         Updates the preview to highlight the keys in the given chord.
@@ -155,17 +154,20 @@ class StenoExerciseFrame(ttk.Frame):
         """
         super().__init__(parent)
 
+        self.configure(borderwidth=0)
+
         self.words = []
         self.word_i = 0
 
         # the tk.Text widget can host any widgets in a flow layout, which we exploit here
         self.words_flow_container = tk.Text(self)
+        self.words_flow_container.configure(borderwidth=0, highlightthickness=0)
         self.words_flow_container.pack()
 
         # self.preview = StenoMachinePreview(self)
         # self.preview.pack()
 
-        style = ttk.Style()
+        style = ttk.Style(self)
         style.configure("Exercise.TLabel", foreground="black", background="white", font=('SansBold', 16))
         style.configure("Exercise.TEntry", foreground="black", background="white",
                         fieldbackground="white", borderwidth=0)
@@ -280,6 +282,10 @@ class StenoExerciseFrame(ttk.Frame):
         """
         Sets a new exercise consisting of the given strokes.
         """
+        for word in self.words:
+            word.destroy()
+        self.words.clear()
+
         for i, stroke in enumerate(strokes):
             word = self.WordInExercise(self, i, stroke)
             self.words_flow_container.window_create(tk.INSERT, window=word)
@@ -288,16 +294,75 @@ class StenoExerciseFrame(ttk.Frame):
         self.words[0].begin()
 
 
+ExerciseSettings = namedtuple("ExerciseSettings", "enabled_lessons")
+
+
+class StenoExerciseSettingsDialog(tk.Toplevel):
+    def __init__(self, parent, listener, initial_settings):
+        super(StenoExerciseSettingsDialog, self).__init__(parent)
+        self.title("Update exercise settings")
+
+        self.transient(parent)
+        self.parent = parent
+        self.listener = listener
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        ttk.Label(self, text="Exercises to include").pack()
+
+        self.lesson_checkboxes = []
+
+        checkboxes_wrapping_frame = ttk.Frame(self)
+
+        for row, plover_lesson in enumerate(learn_plover_lessons):
+            var = tk.IntVar(self, 1 if plover_lesson in initial_settings.enabled_lessons else 0)
+            label = ttk.Label(checkboxes_wrapping_frame, text=plover_lesson)
+            label.grid(column=0, row=row, sticky="W", padx=2)
+            checkbox = ttk.Checkbutton(checkboxes_wrapping_frame, variable=var)
+            checkbox.grid(column=1, row=row)
+            self.lesson_checkboxes.append((plover_lesson, var))
+        checkboxes_wrapping_frame.pack(padx=12, pady=12)
+
+        tk.Button(self, text="OK", command=self._on_ok).pack(side='right')
+        tk.Button(self, text="Cancel", command=self._on_cancel).pack(side='left')
+
+    def _on_ok(self):
+        self.listener.on_settings_dialog_close(True, ExerciseSettings(self.enabled_lessons))
+        self._close()
+
+    def _on_cancel(self):
+        self.listener.on_settings_dialog_close(False, None)
+        self._close()
+
+    def _close(self):
+        self.parent.focus_set()
+        self.destroy()
+
+    @property
+    def enabled_lessons(self):
+        return [lesson for lesson, var in self.lesson_checkboxes if var.get()]
+
+
 class StenoApplication(tk.Tk):
     def __init__(self):
         super(StenoApplication, self).__init__()
+
+        self.configure(background="white")
 
         with open("data/main.json", "r") as f:
             self.steno_dict = json.load(f)
 
         self.reverse_dict = defaultdict(list)
         for chord, word in self.steno_dict.items():
-            self.reverse_dict[word].append(chord)
+            if not any(letter in "012345789" for letter in chord):
+                self.reverse_dict[word].append(chord)
+
+        self.current_settings = ExerciseSettings(learn_plover_lessons)
+
+        self.exercise_settings_button = tk.Button(self,
+                                                  text="Exercise Settings...",
+                                                  command=lambda: StenoExerciseSettingsDialog(self, self, self.current_settings))
+        self.exercise_settings_button.pack()
 
         self.exercise_frame = StenoExerciseFrame(self, self)
         self._generate_exercise()
@@ -306,11 +371,21 @@ class StenoApplication(tk.Tk):
         # self.preview.set_chord(Chord(keys=[StenoKeys.S_L, StenoKeys.K_L, StenoKeys.P_L]))
         # self.preview.set_chord(Chord(keys=[StenoKeys.R_L, StenoKeys.O, StenoKeys.R_R]))
 
+    def on_settings_dialog_close(self, not_canceled, new_settings):
+        if not_canceled:
+            if new_settings != self.current_settings:
+                self.current_settings = new_settings
+                self._generate_exercise()
+
     def _generate_exercise(self):
         exercise_length = 10
         all_plover_words = []
-        for lesson in learn_plover_lessons:
+        for lesson in self.current_settings.enabled_lessons:
             all_plover_words += learn_plover_lesson_words[lesson]
+
+        if len(all_plover_words) == 0:
+            all_plover_words.append("please select at least one exercise")
+            exercise_length = 1
 
         random = Random()
         exercise = []
@@ -331,11 +406,12 @@ class StenoApplication(tk.Tk):
                             if key.letter == letter and key.order > min_order and \
                                     (matching_key is None or matching_key.order > key.order):
                                 matching_key = key
-                        assert matching_key is not None
+                        assert matching_key is not None, stroke
                         keys.add(matching_key)
                 chords.append(Chord(keys))
             exercise.append(Stroke(chords, word))
         self.exercise_frame.set_exercise(exercise)
+
 
 if __name__ == "__main__":
     StenoApplication().mainloop()
