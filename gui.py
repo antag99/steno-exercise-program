@@ -154,15 +154,13 @@ class StenoExerciseFrame(ttk.Frame):
         """
         super().__init__(parent)
 
-        self.configure(borderwidth=0)
-
         self.words = []
         self.word_i = 0
 
         # the tk.Text widget can host any widgets in a flow layout, which we exploit here
         self.words_flow_container = tk.Text(self)
         self.words_flow_container.configure(borderwidth=0, highlightthickness=0)
-        self.words_flow_container.pack()
+        self.words_flow_container.pack(expand=True, fill=tk.BOTH)
 
         # self.preview = StenoMachinePreview(self)
         # self.preview.pack()
@@ -173,6 +171,8 @@ class StenoExerciseFrame(ttk.Frame):
                         fieldbackground="white", borderwidth=0)
         style.configure("Exercise.TFrame", foreground="white", background="white")
         style.map("Exercise.TEntry", fieldbackground=[('disabled', 'white')], foreground=[('disabled', 'black')])
+
+        self.configure(borderwidth=0, style="Exercise.TFrame")
 
         self.listener = listener
 
@@ -294,7 +294,7 @@ class StenoExerciseFrame(ttk.Frame):
         self.words[0].begin()
 
 
-ExerciseSettings = namedtuple("ExerciseSettings", "enabled_lessons")
+ExerciseSettings = namedtuple("ExerciseSettings", "exercise_size enabled_lessons")
 
 
 class StenoExerciseSettingsDialog(tk.Toplevel):
@@ -307,6 +307,14 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
         self.listener = listener
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.initial_settings = initial_settings
+
+        exercise_size_frame = ttk.Frame(self)
+        ttk.Label(exercise_size_frame, text="Length of exercises").pack(side="left")
+        self.exercise_size_var = tk.StringVar(self, value=str(initial_settings.exercise_size))
+        self.exercise_size_entry = ttk.Entry(exercise_size_frame, textvariable=self.exercise_size_var, width=3)
+        self.exercise_size_entry.pack(anchor="e", side="right")
+        exercise_size_frame.pack()
 
         ttk.Label(self, text="Exercises to include").pack()
 
@@ -327,7 +335,7 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
         tk.Button(self, text="Cancel", command=self._on_cancel).pack(side='left')
 
     def _on_ok(self):
-        self.listener.on_settings_dialog_close(True, ExerciseSettings(self.enabled_lessons))
+        self.listener.on_settings_dialog_close(True, ExerciseSettings(self.exercise_size, self.enabled_lessons))
         self._close()
 
     def _on_cancel(self):
@@ -337,6 +345,13 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
     def _close(self):
         self.parent.focus_set()
         self.destroy()
+
+    @property
+    def exercise_size(self):
+        try:
+            return int(self.exercise_size_entry.get())
+        except ValueError:
+            return self.initial_settings.exercise_size
 
     @property
     def enabled_lessons(self):
@@ -357,7 +372,7 @@ class StenoApplication(tk.Tk):
             if not any(letter in "012345789" for letter in chord):
                 self.reverse_dict[word].append(chord)
 
-        self.current_settings = ExerciseSettings(learn_plover_lessons)
+        self.current_settings = ExerciseSettings(20, learn_plover_lessons)
 
         self.exercise_settings_button = tk.Button(self,
                                                   text="Exercise Settings...",
@@ -366,7 +381,7 @@ class StenoApplication(tk.Tk):
 
         self.exercise_frame = StenoExerciseFrame(self, self)
         self._generate_exercise()
-        self.exercise_frame.pack()
+        self.exercise_frame.pack(expand=True, fill=tk.BOTH)
 
         # self.preview.set_chord(Chord(keys=[StenoKeys.S_L, StenoKeys.K_L, StenoKeys.P_L]))
         # self.preview.set_chord(Chord(keys=[StenoKeys.R_L, StenoKeys.O, StenoKeys.R_R]))
@@ -378,7 +393,7 @@ class StenoApplication(tk.Tk):
                 self._generate_exercise()
 
     def _generate_exercise(self):
-        exercise_length = 10
+        exercise_length = self.current_settings.exercise_size
         all_plover_words = []
         for lesson in self.current_settings.enabled_lessons:
             all_plover_words += learn_plover_lesson_words[lesson]
