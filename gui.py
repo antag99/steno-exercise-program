@@ -220,6 +220,12 @@ class StenoExerciseFrame(ttk.Frame):
         def begin(self):
             self.exercise_frame.word_i = self.index
             self._text_entry.config(state=tk.NORMAL)
+            self.resume()
+
+        def pause(self):
+            pass
+
+        def resume(self):
             self._text_entry.focus()
             self._text_entry.icursor(len(self._text_entry_var.get()))
 
@@ -278,6 +284,12 @@ class StenoExerciseFrame(ttk.Frame):
         Ends the exercise session.
         """
 
+    def pause_exercise(self):
+        self.words[self.word_i].pause()
+
+    def resume_exercise(self):
+        self.words[self.word_i].resume()
+
     def set_exercise(self, strokes):
         """
         Sets a new exercise consisting of the given strokes.
@@ -335,12 +347,13 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
         tk.Button(self, text="Cancel", command=self._on_cancel).pack(side='left')
 
     def _on_ok(self):
-        self.listener.on_settings_dialog_close(True, ExerciseSettings(self.exercise_size, self.enabled_lessons))
+        settings = ExerciseSettings(self.exercise_size, self.enabled_lessons)
         self._close()
+        self.listener.on_settings_dialog_close(True, settings)
 
     def _on_cancel(self):
-        self.listener.on_settings_dialog_close(False, None)
         self._close()
+        self.listener.on_settings_dialog_close(False, None)
 
     def _close(self):
         self.parent.focus_set()
@@ -376,12 +389,14 @@ class StenoApplication(tk.Tk):
 
         self.exercise_settings_button = tk.Button(self,
                                                   text="Exercise Settings...",
-                                                  command=lambda: StenoExerciseSettingsDialog(self, self, self.current_settings))
+                                                  command=self._open_settings_dialog)
         self.exercise_settings_button.pack()
 
         self.exercise_frame = StenoExerciseFrame(self, self)
         self._generate_exercise()
         self.exercise_frame.pack(expand=True, fill=tk.BOTH)
+
+        self.machine_preview = StenoMachinePreview(self)
 
         # self.preview.set_chord(Chord(keys=[StenoKeys.S_L, StenoKeys.K_L, StenoKeys.P_L]))
         # self.preview.set_chord(Chord(keys=[StenoKeys.R_L, StenoKeys.O, StenoKeys.R_R]))
@@ -391,6 +406,12 @@ class StenoApplication(tk.Tk):
             if new_settings != self.current_settings:
                 self.current_settings = new_settings
                 self._generate_exercise()
+                return
+        self.exercise_frame.resume_exercise()
+
+    def _open_settings_dialog(self):
+        self.exercise_frame.pause_exercise()
+        StenoExerciseSettingsDialog(self, self, self.current_settings)
 
     def _generate_exercise(self):
         exercise_length = self.current_settings.exercise_size
