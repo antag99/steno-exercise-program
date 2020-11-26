@@ -6,6 +6,7 @@ import tkinter.font as tk_font
 from collections import namedtuple
 from enum import IntEnum, unique
 import time
+from datetime import datetime
 
 from learn_plover import *
 import json
@@ -156,14 +157,13 @@ class StenoExerciseFrame(ttk.Frame):
 
         self.words = []
         self.word_i = 0
+        self.exercise_begin_time = 0
+        self.exercise_begin_date = None
 
         # the tk.Text widget can host any widgets in a flow layout, which we exploit here
         self.words_flow_container = tk.Text(self)
         self.words_flow_container.configure(borderwidth=0, highlightthickness=0)
         self.words_flow_container.pack(expand=True, fill=tk.BOTH)
-
-        # self.preview = StenoMachinePreview(self)
-        # self.preview.pack()
 
         style = ttk.Style(self)
         style.configure("Exercise.TLabel", foreground="black", background="white", font=('SansBold', 16))
@@ -287,7 +287,7 @@ class StenoExerciseFrame(ttk.Frame):
                         self._text_entry.config(state=tk.DISABLED)
                         self._text_entry_var.set(self.text_to_type)
                         if is_last:
-                            print("Finished, yay!")
+                            self.exercise_frame._on_finish_exercise()
                         else:
                             next_word = self.exercise_frame.words[self.index + 1]
                             next_word.set_overflown_content(overflown_content)
@@ -296,6 +296,15 @@ class StenoExerciseFrame(ttk.Frame):
         def set_overflown_content(self, contents_to_set):
             self._text_entry_var.set(contents_to_set)
             self.on_contents_update()
+
+    def _on_finish_exercise(self):
+        word_results = []
+        last_time = self.exercise_begin_time
+        for word in self.words:
+            word_results.append(ExerciseWordResult(word.stroke, not word.incorrectly_typed, word.finish_time - last_time))
+            last_time = word.finish_time
+        exercise_result = ExerciseResult(self.exercise_begin_date, self.words)
+        self.listener.finish_exercise(exercise_result)
 
     def start_session(self):
         """
@@ -321,6 +330,9 @@ class StenoExerciseFrame(ttk.Frame):
             word.destroy()
         self.words.clear()
 
+        self.exercise_begin_time = time.monotonic()
+        self.exercise_begin_date = datetime.now()
+
         for i, stroke in enumerate(strokes):
             word = self.WordInExercise(self, i, stroke)
             self.words_flow_container.window_create(tk.INSERT, window=word)
@@ -329,6 +341,8 @@ class StenoExerciseFrame(ttk.Frame):
         self.words[0].begin()
 
 
+ExerciseWordResult = namedtuple("ExerciseWordResult", "stroke is_typed_correctly typing_time")
+ExerciseResult = namedtuple("ExerciseResult", "timestamp words")
 ExerciseSettings = namedtuple("ExerciseSettings", "exercise_size enabled_lessons")
 
 
@@ -424,9 +438,6 @@ class StenoApplication(tk.Tk):
 
         self._generate_exercise()
 
-        # self.preview.set_chord(Chord(keys=[StenoKeys.S_L, StenoKeys.K_L, StenoKeys.P_L]))
-        # self.preview.set_chord(Chord(keys=[StenoKeys.R_L, StenoKeys.O, StenoKeys.R_R]))
-
     def on_settings_dialog_close(self, not_canceled, new_settings):
         if not_canceled:
             if new_settings != self.current_settings:
@@ -434,6 +445,9 @@ class StenoApplication(tk.Tk):
                 self._generate_exercise()
                 return
         self.exercise_frame.resume_exercise()
+
+    def finish_exercise(self, exercise_result):
+        self._generate_exercise()
 
     def _open_settings_dialog(self):
         self.exercise_frame.pause_exercise()
