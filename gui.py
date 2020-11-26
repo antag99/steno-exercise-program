@@ -138,7 +138,7 @@ class StenoMachinePreview(ttk.Frame):
         """
 
         for key, key_square in self.keys:
-            self.canvas.itemconfigure(key_square, fill='yellow' if key in chord.keys else 'gray')
+            self.canvas.itemconfigure(key_square, fill='yellow' if chord is not None and key in chord.keys else 'gray')
 
 
 class StenoExerciseFrame(ttk.Frame):
@@ -220,6 +220,7 @@ class StenoExerciseFrame(ttk.Frame):
         def begin(self):
             self.exercise_frame.word_i = self.index
             self._text_entry.config(state=tk.NORMAL)
+            self._show_chord_preview()
             self.resume()
 
         def pause(self):
@@ -231,6 +232,29 @@ class StenoExerciseFrame(ttk.Frame):
 
         def _on_change(self, *_):
             self.on_contents_update()
+
+        def _show_chord_preview(self):
+            self.exercise_frame.listener.set_chord_preview(self.stroke.chord_sequence[0])
+
+        def _on_completely_typed(self):
+            self.finish_time = time.monotonic()
+            if self._has_next_word:
+                self._next_word._show_chord_preview()
+            else:
+                self.exercise_frame.listener.set_chord_preview(None)
+
+        def _on_incorrectly_typed(self):
+            self.incorrectly_typed = True
+            self.finished = False
+            self.exercise_frame.listener.set_chord_preview(self.stroke.chord_sequence[0])
+
+        @property
+        def _has_next_word(self):
+            return self.index + 1 < len(self.exercise_frame.words)
+
+        @property
+        def _next_word(self):
+            return self.exercise_frame.words[self.index + 1]
 
         def on_contents_update(self):
             new_contents = self._text_entry_var.get()
@@ -251,11 +275,10 @@ class StenoExerciseFrame(ttk.Frame):
             advance_to_next_word = completely_typed and remaining_chars_to_type <= 0 or is_last
 
             if not correctly_typed:
-                self.incorrectly_typed = True
-                self.finished = False
+                self._on_incorrectly_typed()
             elif completely_typed:
                 if not self.finished:
-                    self.finish_time = time.monotonic()
+                    self._on_completely_typed()
                 if advance_to_next_word:
                     overflown_content = new_contents[len(self.text_to_type):]
                     if len(overflown_content) > 0 and is_last:
@@ -393,10 +416,13 @@ class StenoApplication(tk.Tk):
         self.exercise_settings_button.pack()
 
         self.exercise_frame = StenoExerciseFrame(self, self)
-        self._generate_exercise()
         self.exercise_frame.pack(expand=True, fill=tk.BOTH)
 
         self.machine_preview = StenoMachinePreview(self)
+        self.machine_preview.pack(expand=True, fill=tk.BOTH)
+        self.set_chord_preview = self.machine_preview.set_chord
+
+        self._generate_exercise()
 
         # self.preview.set_chord(Chord(keys=[StenoKeys.S_L, StenoKeys.K_L, StenoKeys.P_L]))
         # self.preview.set_chord(Chord(keys=[StenoKeys.R_L, StenoKeys.O, StenoKeys.R_R]))
