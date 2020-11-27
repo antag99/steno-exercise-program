@@ -12,6 +12,8 @@ from learn_plover import *
 import json
 from random import Random
 from collections import defaultdict
+from typing import List
+from pathlib import Path
 
 
 @unique
@@ -303,7 +305,7 @@ class StenoExerciseFrame(ttk.Frame):
         for word in self.words:
             word_results.append(ExerciseWordResult(word.stroke, not word.incorrectly_typed, word.finish_time - last_time))
             last_time = word.finish_time
-        exercise_result = ExerciseResult(self.exercise_begin_date, self.words)
+        exercise_result = ExerciseResult(self.exercise_begin_date, word_results)
         self.listener.finish_exercise(exercise_result)
 
     def start_session(self):
@@ -408,13 +410,12 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
         return [lesson for lesson, var in self.lesson_checkboxes if var.get()]
 
 
-class StenoApplication(tk.Tk):
-    def __init__(self):
-        super(StenoApplication, self).__init__()
+class StenoExerciseGenerator:
+    def __init__(self,
+                 dictionary_file,
+                 user_log_file):
 
-        self.configure(background="white")
-
-        with open("data/main.json", "r") as f:
+        with open(dictionary_file, "r") as f:
             self.steno_dict = json.load(f)
 
         self.reverse_dict = defaultdict(list)
@@ -422,41 +423,60 @@ class StenoApplication(tk.Tk):
             if not any(letter in "012345789" for letter in chord):
                 self.reverse_dict[word].append(chord)
 
-        self.current_settings = ExerciseSettings(20, learn_plover_lessons)
+        self.user_log_file = user_log_file
+        self.exercise_history = []
+        self.field_types = {
+            Stroke: [List[Chord], str],
+            Chord: [List[StenoKeys]],
+            ExerciseResult: [datetime, List[ExerciseWordResult]],
+            ExerciseWordResult: [Stroke, bool, float]
+        }
+        user_log_path = Path(user_log_file)
+        user_log_path.parent.mkdir(parents=True, exist_ok=True)
+        if user_log_path.exists():
+            with open(self.user_log_file, "r") as f:
+                self.exercise_history = self._from_json_object(json.load(f), List[ExerciseResult])
 
-        self.exercise_settings_button = tk.Button(self,
-                                                  text="Exercise Settings...",
-                                                  command=self._open_settings_dialog)
-        self.exercise_settings_button.pack()
+    def _from_json_object(self, object, object_type):
+        if hasattr(object_type, "_name") and object_type._name == "List":
+            return [self._from_json_object(elem, object_type.__dict__["__args__"][0]) for elem in object]
+        elif object_type in [str, int, StenoKeys, bool, float]:
+            return object_type(object)
+        elif object_type is datetime:
+            return datetime.fromisoformat(object)
+        elif object_type in self.field_types:
+            res = [self._from_json_object(elem, elem_type)
+                   for elem, elem_type in zip(object, self.field_types[object_type])]
+            return object_type(*res)
+        else:
+            raise RuntimeError(repr(object), repr(object_type))
 
-        self.exercise_frame = StenoExerciseFrame(self, self)
-        self.exercise_frame.pack(expand=True, fill=tk.BOTH)
+    def _to_json_object(self, object, object_type):
+        if hasattr(object_type, "_name") and object_type._name == "List":
+            return [self._to_json_object(elem, object_type.__dict__["__args__"][0]) for elem in object]
+        elif object_type in [str, int, StenoKeys, bool, float]:
+            return object
+        elif object_type is datetime:
+            return str(object)
+        elif object_type in self.field_types:
+            res = [self._to_json_object(elem, elem_type)
+                   for elem, elem_type in zip(object, self.field_types[object_type])]
+            return res
+        else:
+            raise RuntimeError(repr(object), repr(object_type))
 
-        self.machine_preview = StenoMachinePreview(self)
-        self.machine_preview.pack(expand=True, fill=tk.BOTH)
-        self.set_chord_preview = self.machine_preview.set_chord
+    def _save_exercise_history(self):
+        with open(self.user_log_file, "w") as f:
+            json.dump(self._to_json_object(self.exercise_history, List[ExerciseResult]), f)
 
-        self._generate_exercise()
+    def record_exercise_result(self, exercise_result):
+        self.exercise_history.append(exercise_result)
+        self._save_exercise_history()
 
-    def on_settings_dialog_close(self, not_canceled, new_settings):
-        if not_canceled:
-            if new_settings != self.current_settings:
-                self.current_settings = new_settings
-                self._generate_exercise()
-                return
-        self.exercise_frame.resume_exercise()
-
-    def finish_exercise(self, exercise_result):
-        self._generate_exercise()
-
-    def _open_settings_dialog(self):
-        self.exercise_frame.pause_exercise()
-        StenoExerciseSettingsDialog(self, self, self.current_settings)
-
-    def _generate_exercise(self):
-        exercise_length = self.current_settings.exercise_size
+    def generate_exercise(self, exercise_settings):
+        exercise_length = exercise_settings.exercise_size
         all_plover_words = []
-        for lesson in self.current_settings.enabled_lessons:
+        for lesson in exercise_settings.enabled_lessons:
             all_plover_words += learn_plover_lesson_words[lesson]
 
         if len(all_plover_words) == 0:
@@ -486,7 +506,50 @@ class StenoApplication(tk.Tk):
                         keys.add(matching_key)
                 chords.append(Chord(keys))
             exercise.append(Stroke(chords, word))
-        self.exercise_frame.set_exercise(exercise)
+        return exercise
+
+
+class StenoApplication(tk.Tk):
+    def __init__(self):
+        super(StenoApplication, self).__init__()
+
+        self.configure(background="white")
+
+        self.current_settings = ExerciseSettings(20, learn_plover_lessons)
+        self.exercise_generator = StenoExerciseGenerator("data/main.json", "output/log.json")
+
+        self.exercise_settings_button = tk.Button(self,
+                                                  text="Exercise Settings...",
+                                                  command=self._open_settings_dialog)
+        self.exercise_settings_button.pack()
+
+        self.exercise_frame = StenoExerciseFrame(self, self)
+        self.exercise_frame.pack(expand=True, fill=tk.BOTH)
+
+        self.machine_preview = StenoMachinePreview(self)
+        self.machine_preview.pack(expand=True, fill=tk.BOTH)
+        self.set_chord_preview = self.machine_preview.set_chord
+
+        self._generate_exercise()
+
+    def on_settings_dialog_close(self, not_canceled, new_settings):
+        if not_canceled:
+            if new_settings != self.current_settings:
+                self.current_settings = new_settings
+                self._generate_exercise()
+                return
+        self.exercise_frame.resume_exercise()
+
+    def finish_exercise(self, exercise_result):
+        self.exercise_generator.record_exercise_result(exercise_result)
+        self._generate_exercise()
+
+    def _open_settings_dialog(self):
+        self.exercise_frame.pause_exercise()
+        StenoExerciseSettingsDialog(self, self, self.current_settings)
+
+    def _generate_exercise(self):
+        self.exercise_frame.set_exercise(self.exercise_generator.generate_exercise(self.current_settings))
 
 
 if __name__ == "__main__":
