@@ -286,11 +286,11 @@ class StenoExerciseFrame(ttk.Frame):
                     if len(overflown_content) > 0 and is_last:
                         self.incorrectly_typed = True
                     else:
-                        self._text_entry.config(state=tk.DISABLED)
                         self._text_entry_var.set(self.text_to_type)
                         if is_last:
                             self.exercise_frame._on_finish_exercise()
                         else:
+                            self._text_entry.config(state=tk.DISABLED)
                             next_word = self.exercise_frame.words[self.index + 1]
                             next_word.set_overflown_content(overflown_content)
                             next_word.begin()
@@ -410,6 +410,45 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
         return [lesson for lesson, var in self.lesson_checkboxes if var.get()]
 
 
+class TupleToJsonObjectConverter:
+    def __init__(self):
+        self.tuple_field_types = {
+            Stroke: [List[Chord], str],
+            Chord: [List[StenoKeys]],
+            ExerciseResult: [datetime, List[ExerciseWordResult]],
+            ExerciseWordResult: [Stroke, bool, float],
+            ExerciseSettings: [int, List[str]]
+        }
+
+    def from_json_object(self, object, object_type):
+        if hasattr(object_type, "_name") and object_type._name == "List":
+            return [self.from_json_object(elem, object_type.__dict__["__args__"][0]) for elem in object]
+        elif object_type in [str, int, StenoKeys, bool, float]:
+            return object_type(object)
+        elif object_type is datetime:
+            return datetime.fromisoformat(object)
+        elif object_type in self.tuple_field_types:
+            res = [self.from_json_object(elem, elem_type)
+                   for elem, elem_type in zip(object, self.tuple_field_types[object_type])]
+            return object_type(*res)
+        else:
+            raise RuntimeError(repr(object), repr(object_type))
+
+    def to_json_object(self, object, object_type):
+        if hasattr(object_type, "_name") and object_type._name == "List":
+            return [self.to_json_object(elem, object_type.__dict__["__args__"][0]) for elem in object]
+        elif object_type in [str, int, StenoKeys, bool, float]:
+            return object
+        elif object_type is datetime:
+            return str(object)
+        elif object_type in self.tuple_field_types:
+            res = [self.to_json_object(elem, elem_type)
+                   for elem, elem_type in zip(object, self.tuple_field_types[object_type])]
+            return res
+        else:
+            raise RuntimeError(repr(object), repr(object_type))
+
+
 class StenoExerciseGenerator:
     def __init__(self,
                  dictionary_file,
@@ -425,70 +464,49 @@ class StenoExerciseGenerator:
 
         self.user_log_file = user_log_file
         self.exercise_history = []
-        self.field_types = {
-            Stroke: [List[Chord], str],
-            Chord: [List[StenoKeys]],
-            ExerciseResult: [datetime, List[ExerciseWordResult]],
-            ExerciseWordResult: [Stroke, bool, float]
-        }
+        self._json_converter = TupleToJsonObjectConverter()
         user_log_path = Path(user_log_file)
         user_log_path.parent.mkdir(parents=True, exist_ok=True)
         if user_log_path.exists():
             with open(self.user_log_file, "r") as f:
-                self.exercise_history = self._from_json_object(json.load(f), List[ExerciseResult])
-
-    def _from_json_object(self, object, object_type):
-        if hasattr(object_type, "_name") and object_type._name == "List":
-            return [self._from_json_object(elem, object_type.__dict__["__args__"][0]) for elem in object]
-        elif object_type in [str, int, StenoKeys, bool, float]:
-            return object_type(object)
-        elif object_type is datetime:
-            return datetime.fromisoformat(object)
-        elif object_type in self.field_types:
-            res = [self._from_json_object(elem, elem_type)
-                   for elem, elem_type in zip(object, self.field_types[object_type])]
-            return object_type(*res)
-        else:
-            raise RuntimeError(repr(object), repr(object_type))
-
-    def _to_json_object(self, object, object_type):
-        if hasattr(object_type, "_name") and object_type._name == "List":
-            return [self._to_json_object(elem, object_type.__dict__["__args__"][0]) for elem in object]
-        elif object_type in [str, int, StenoKeys, bool, float]:
-            return object
-        elif object_type is datetime:
-            return str(object)
-        elif object_type in self.field_types:
-            res = [self._to_json_object(elem, elem_type)
-                   for elem, elem_type in zip(object, self.field_types[object_type])]
-            return res
-        else:
-            raise RuntimeError(repr(object), repr(object_type))
+                self.exercise_history = self._json_converter.from_json_object(json.load(f), List[ExerciseResult])
 
     def _save_exercise_history(self):
         with open(self.user_log_file, "w") as f:
-            json.dump(self._to_json_object(self.exercise_history, List[ExerciseResult]), f)
+            json.dump(self._json_converter.to_json_object(self.exercise_history, List[ExerciseResult]), f)
 
     def record_exercise_result(self, exercise_result):
         self.exercise_history.append(exercise_result)
         self._save_exercise_history()
 
+    def _compute_word_weights(self):
+        typing_times_by_word = defaultdict(list)
+
+        for historical_exercise in self.exercise_history:
+            for word in historical_exercise.words[1:]:
+                if word.is_typed_correctly:
+                    typing_times_by_word[word.stroke.written_word].append(word.typing_time)
+
+        weight_by_word = {word: 1/sum(1/typing_time for typing_time in typing_times)
+                          for word, typing_times in typing_times_by_word.items()}
+        return weight_by_word
+
     def generate_exercise(self, exercise_settings):
         exercise_length = exercise_settings.exercise_size
-        all_plover_words = []
+        words_to_include = []
         for lesson in exercise_settings.enabled_lessons:
-            all_plover_words += learn_plover_lesson_words[lesson]
+            words_to_include += learn_plover_lesson_words[lesson]
 
-        if len(all_plover_words) == 0:
-            all_plover_words.append("please select at least one exercise")
+        if len(words_to_include) == 0:
+            words_to_include.append("please select at least one exercise")
             exercise_length = 1
 
         random = Random()
-        exercise = []
-        for i in range(0, exercise_length):
-            word = random.choice(all_plover_words)
-            stroke = self.reverse_dict[word][0]
+        word_weights = self._compute_word_weights()
+        weights_of_words_to_include = [word_weights.get(word, 0.5) for word in words_to_include]
+        random_words = random.choices(words_to_include, weights_of_words_to_include, k=exercise_length)
 
+        def parse_chords(stroke):
             chords = []
             for chord in stroke.split("/"):
                 min_order = -1
@@ -505,8 +523,9 @@ class StenoExerciseGenerator:
                         assert matching_key is not None, stroke
                         keys.add(matching_key)
                 chords.append(Chord(keys))
-            exercise.append(Stroke(chords, word))
-        return exercise
+            return chords
+
+        return [Stroke(parse_chords(self.reverse_dict[word][0]), word) for word in random_words]
 
 
 class StenoApplication(tk.Tk):
@@ -515,7 +534,15 @@ class StenoApplication(tk.Tk):
 
         self.configure(background="white")
 
-        self.current_settings = ExerciseSettings(20, learn_plover_lessons)
+        self._json_converter = TupleToJsonObjectConverter()
+
+        self._settings_path = Path("output/config.json")
+        if not self._settings_path.exists():
+            self.current_settings = ExerciseSettings(20, learn_plover_lessons)
+        else:
+            with open(self._settings_path) as f:
+                self.current_settings = self._json_converter.from_json_object(json.load(f), ExerciseSettings)
+
         self.exercise_generator = StenoExerciseGenerator("data/main.json", "output/log.json")
 
         self.exercise_settings_button = tk.Button(self,
@@ -536,6 +563,9 @@ class StenoApplication(tk.Tk):
         if not_canceled:
             if new_settings != self.current_settings:
                 self.current_settings = new_settings
+                self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(self._settings_path, "w") as f:
+                    json.dump(self._json_converter.to_json_object(self.current_settings, ExerciseSettings), f)
                 self._generate_exercise()
                 return
         self.exercise_frame.resume_exercise()
