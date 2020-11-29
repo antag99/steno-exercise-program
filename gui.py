@@ -40,16 +40,22 @@ class StenoApplication(tk.Tk):
 
         self._generate_exercise()
 
-    def on_settings_dialog_close(self, not_canceled, new_settings):
-        if not_canceled:
-            if new_settings != self.current_settings:
-                self.current_settings = new_settings
-                self._settings_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(self._settings_path, "w") as f:
-                    json.dump(self._json_converter.to_json_object(self.current_settings, ExerciseSettings), f)
-                self._generate_exercise()
-                return
-        self.exercise_frame.resume_exercise()
+    def on_settings_dialog_close(self,
+                                 regenerate_exercise,
+                                 settings_changed,
+                                 new_settings):
+        if settings_changed:
+            self.current_settings = new_settings
+            self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._settings_path, "w") as f:
+                json.dump(self._json_converter.to_json_object(self.current_settings, ExerciseSettings), f)
+        if regenerate_exercise:
+            self._generate_exercise()
+        else:
+            self.exercise_frame.resume_exercise()
+
+    def on_settings_dialog_clear_history(self):
+        self.exercise_generator.clear_exercise_history()
 
     def finish_exercise(self, exercise_result):
         self.exercise_generator.record_exercise_result(exercise_result)

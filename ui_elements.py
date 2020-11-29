@@ -281,17 +281,26 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
             self.lesson_checkboxes.append((plover_lesson, var))
         checkboxes_wrapping_frame.pack(padx=12, pady=12)
 
+        self.history_cleared = False
+
+        tk.Button(self, text="Clear exercise history", command=self._on_clear_history).pack()
+
         tk.Button(self, text="OK", command=self._on_ok).pack(side='right')
         tk.Button(self, text="Cancel", command=self._on_cancel).pack(side='left')
 
+    def _on_clear_history(self):
+        self.listener.on_settings_dialog_clear_history()
+        self.history_cleared = True
+
     def _on_ok(self):
-        settings = ExerciseSettings(self.exercise_size, self.enabled_lessons)
+        new_settings = ExerciseSettings(self.exercise_size, self.enabled_lessons)
+        settings_changed = new_settings != self.initial_settings
         self._close()
-        self.listener.on_settings_dialog_close(True, settings)
+        self.listener.on_settings_dialog_close(settings_changed or self.history_cleared, settings_changed, new_settings)
 
     def _on_cancel(self):
         self._close()
-        self.listener.on_settings_dialog_close(False, None)
+        self.listener.on_settings_dialog_close(self.history_cleared, False, None)
 
     def _close(self):
         self.parent.focus_set()
@@ -300,10 +309,10 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
     @property
     def exercise_size(self):
         try:
-            return int(self.exercise_size_entry.get())
+            return max(1, int(self.exercise_size_entry.get()))
         except ValueError:
             return self.initial_settings.exercise_size
 
     @property
     def enabled_lessons(self):
-        return [lesson for lesson, var in self.lesson_checkboxes if var.get()]
+        return [lesson for lesson, var in self.lesson_checkboxes if var.get()] or ["One Syllable Words"]

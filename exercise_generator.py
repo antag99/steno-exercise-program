@@ -32,6 +32,10 @@ class StenoExerciseGenerator:
             with open(self.user_log_file, "r") as f:
                 self.exercise_history = self._json_converter.from_json_object(json.load(f), List[ExerciseResult])
 
+    def clear_exercise_history(self):
+        self.exercise_history.clear()
+        self._save_exercise_history()
+
     def _save_exercise_history(self):
         with open(self.user_log_file, "w") as f:
             json.dump(self._json_converter.to_json_object(self.exercise_history, List[ExerciseResult]), f)
@@ -57,10 +61,6 @@ class StenoExerciseGenerator:
         words_to_include = []
         for lesson in exercise_settings.enabled_lessons:
             words_to_include += learn_plover_lesson_words[lesson]
-
-        if len(words_to_include) == 0:
-            words_to_include.append("please select at least one exercise")
-            exercise_length = 1
 
         random = Random()
         word_weights = self._compute_word_weights()
