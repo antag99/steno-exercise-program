@@ -82,6 +82,7 @@ class StenoExerciseGenerator:
                                     (matching_key is None or matching_key.order > key.order):
                                 matching_key = key
                         assert matching_key is not None, stroke
+                        min_order = matching_key.order
                         keys.add(matching_key)
                 chords.append(Chord(keys))
             return chords

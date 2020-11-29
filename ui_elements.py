@@ -80,10 +80,10 @@ class StenoExerciseFrame(ttk.Frame):
         self.words_flow_container.pack(expand=True, fill=tk.BOTH)
 
         style = ttk.Style(self)
-        style.configure("Exercise.TLabel", foreground="black", background="white", font=('SansBold', 16))
+        style.configure("Exercise.TLabel", foreground="black", background="white", font=('Monospace', 16))
         style.configure("Exercise.TEntry", foreground="black", background="white",
                         fieldbackground="white", borderwidth=0)
-        style.configure("Exercise.TFrame", foreground="white", background="white")
+        style.configure("Exercise.TFrame", foreground="white", background="white", borderwidth=0)
         style.map("Exercise.TEntry", fieldbackground=[('disabled', 'white')], foreground=[('disabled', 'black')])
 
         self.configure(borderwidth=0, style="Exercise.TFrame")
@@ -103,18 +103,16 @@ class StenoExerciseFrame(ttk.Frame):
             self.stroke = stroke
 
             self._label = ttk.Label(self, text=" " + stroke.written_word, style="Exercise.TLabel")
-            self._label.pack(ipadx=0, ipady=2)
-            self._text_entry_var = tk.StringVar(self, "", name="word_var_{}".format(index))
+            self._label.pack(anchor="w")
+            self._text_entry_var = tk.StringVar(self, "")
             self._text_entry = ttk.Entry(self,
                                          textvariable=self._text_entry_var,
                                          style="Exercise.TEntry",
                                          state=tk.DISABLED,
-                                         validate="key",
-                                         width=0,  # assign width based on label width
-                                         font=('SansBold', 16))
-            # self._text_entry.configure(validatecommand=(self.register(self._on_validate), "%s"))
-            self._text_entry.pack(fill=tk.X, expand=False)
-            self._text_entry_var.trace("w", self._on_change)
+                                         width=len(self.text_to_type),  # assign width based on label width
+                                         font=('Monospace', 16))
+            self._text_entry.pack(anchor="w")
+            self._text_entry_var_trace_name = self._text_entry_var.trace_add("write", self._on_change)
 
             self.incorrectly_typed = False
             self.finished = False
@@ -152,15 +150,16 @@ class StenoExerciseFrame(ttk.Frame):
 
         def _on_completely_typed(self):
             self.finish_time = time.monotonic()
+            self.finished = True
             if self._has_next_word:
                 self._next_word._show_chord_preview()
             else:
-                self.exercise_frame.listener.set_chord_preview(None)
+                self._show_chord_preview()
 
         def _on_incorrectly_typed(self):
             self.incorrectly_typed = True
             self.finished = False
-            self.exercise_frame.listener.set_chord_preview(self.stroke.chord_sequence[0])
+            self._show_chord_preview()
 
         @property
         def _has_next_word(self):
@@ -206,6 +205,9 @@ class StenoExerciseFrame(ttk.Frame):
                             next_word = self.exercise_frame.words[self.index + 1]
                             next_word.set_overflown_content(overflown_content)
                             next_word.begin()
+
+            if not advance_to_next_word:
+                self._text_entry.configure(width=max(len(self.text_to_type), len(self._text_entry_var.get())))
 
         def set_overflown_content(self, contents_to_set):
             self._text_entry_var.set(contents_to_set)
