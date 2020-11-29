@@ -66,6 +66,7 @@ class StenoExerciseGenerator:
         word_weights = self._compute_word_weights()
         weights_of_words_to_include = [word_weights.get(word, 0.5) for word in words_to_include]
         random_words = random.choices(words_to_include, weights_of_words_to_include, k=exercise_length)
+        # random_words = words_to_include  # just for testing chord parsing
 
         def parse_chords(stroke):
             chords = []

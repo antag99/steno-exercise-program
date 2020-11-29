@@ -177,7 +177,7 @@ learn_plover_lesson_words = {"One Syllable Words": [
     'pong', 'among', 'bring', 'young', 'fang',
     'flung', 'gang', 'belong',
     'change', 'range', 'hinge', 'lounge', 'plunge',
-    'cringe', 'tinge', 'fringe', 'derange', 'grunge', 'syringe'
+    'cringe', 'tinge', 'fringe', 'grunge', 'syringe' # derange removed
 ], "Common Compound Clusters": [
     'hemp', 'trump', 'rump', 'romp', 'ramp',
     'pump', 'camp', 'cramp', 'tamp', 'pomp',
