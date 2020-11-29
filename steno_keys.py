@@ -6,7 +6,9 @@ from collections import namedtuple
 @unique
 class StenoKeys(IntEnum):
     """
-    Enumerates the keys on a stenography keyboard.
+    Keys on a stenography keyboard. Roughly, the left half denotes consonant sounds in the beginning of a syllable
+    (with multiple keys combined to form missing sounds), lower center keys are used to form vowel sounds, and the
+    right half consonant sounds ending a syllable.
     """
     S_L = 0
     T_L = 1
@@ -33,6 +35,10 @@ class StenoKeys(IntEnum):
 
     @property
     def order(self):
+        """
+        :return: a number that may be used to determine the location of this key in steno order. For a definition of
+        steno order, look it up in the "Learn Plover" series.
+        """
         left_half_order = "STKPWHRAO*"
         right_half_order = "EUFRPBLGTSDZ"
         if self.value <= self.STAR:
@@ -42,10 +48,16 @@ class StenoKeys(IntEnum):
 
     @property
     def letter(self):
+        """
+        :return: the letter printed on this key.
+        """
         return "STPHKWRAO*EUFPLTDRBGSZ"[self.value]
 
     @property
     def column(self):
+        """
+        :return: the column this key is present in on the keyboard. The center vowels have separate columns.
+        """
         if StenoKeys.S_L <= self.value <= StenoKeys.H_L:
             return self.value
         elif StenoKeys.K_L <= self.value <= StenoKeys.R_L:
@@ -61,6 +73,9 @@ class StenoKeys(IntEnum):
 
     @property
     def row(self):
+        """
+        :return: the row this key is present in on the keyboard.
+        """
         rows = [
             [range(StenoKeys.S_L, StenoKeys.H_L + 1), range(StenoKeys.F_R, StenoKeys.D_R + 1), [StenoKeys.STAR]],
             [range(StenoKeys.K_L, StenoKeys.R_L + 1), range(StenoKeys.R_R, StenoKeys.Z_R + 1)],
@@ -73,12 +88,17 @@ class StenoKeys(IntEnum):
 
 
 """
-A chord is a set of keys pressed simultaneously.
+A set of steno keys that are pressed simultaneously to form a word or part of a word.
+
+:param keys: the keys in the chord
 """
 Chord = namedtuple('Chord', 'keys')
 
 
 """
-A stroke is a list of chords that together form a word.
+A sequence of chords that together form a written word.
+
+:param chord_sequence: the sequence of chords used to form the word.
+:param written_word: the word that is written.
 """
 Stroke = namedtuple('Stroke', 'chord_sequence written_word')

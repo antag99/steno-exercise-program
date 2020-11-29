@@ -11,11 +11,14 @@ import json
 
 
 class StenoExerciseGenerator:
+    """ Handles the generation of new exercises, that is, choosing words from plover lessons and determining how these
+    can be typed (in order to guide the user). This is done based on the history of previous exercises, so the generator
+    also keeps a log of completed exercises in a file. """
     def __init__(self,
-                 dictionary_file,
-                 user_log_file):
+                 steno_dict_path,
+                 user_log_path):
 
-        with open(dictionary_file, "r") as f:
+        with open(steno_dict_path, "r") as f:
             self.steno_dict = json.load(f)
 
         self.reverse_dict = defaultdict(list)
@@ -23,40 +26,64 @@ class StenoExerciseGenerator:
             if not any(letter in "012345789" for letter in chord):
                 self.reverse_dict[word].append(chord)
 
-        self.user_log_file = user_log_file
-        self.exercise_history = []
+        self.user_log_path = Path(user_log_path)
         self._json_converter = TupleToJsonObjectConverter()
-        user_log_path = Path(user_log_file)
-        user_log_path.parent.mkdir(parents=True, exist_ok=True)
-        if user_log_path.exists():
-            with open(self.user_log_file, "r") as f:
+
+        try:
+            with open(self.user_log_path, "r") as f:
                 self.exercise_history = self._json_converter.from_json_object(json.load(f), List[ExerciseResult])
+        except (json.JSONDecodeError, IOError):
+            self.exercise_history = []
 
     def clear_exercise_history(self):
+        """ Clears the entire exercise history. """
         self.exercise_history.clear()
         self._save_exercise_history()
 
     def _save_exercise_history(self):
-        with open(self.user_log_file, "w") as f:
+        """ Internal method to save the exercise history to a file, invoked every time the history has changed. """
+        self.user_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.user_log_path, "w") as f:
             json.dump(self._json_converter.to_json_object(self.exercise_history, List[ExerciseResult]), f)
 
     def record_exercise_result(self, exercise_result):
+        """
+        Records the given exercise result, saving it into the log of completed exercises.
+
+        :param exercise_result: the exercise result to record.
+        """
         self.exercise_history.append(exercise_result)
         self._save_exercise_history()
 
     def _compute_word_weights(self):
+        """ Internal method used to compute a dictionary of (harmonic) mean typing time for words that have been typed
+        in previous exercises. Words that once were typed incorrectly are not accounted for, due to difficulties in
+        determining how long time it took to type it correctly. The mean typing time is then used to present words the
+        user has difficulty typing more frequently. """
         typing_times_by_word = defaultdict(list)
 
+        # create a mapping of typing times by word
         for historical_exercise in self.exercise_history:
             for word in historical_exercise.words[1:]:
                 if word.is_typed_correctly:
                     typing_times_by_word[word.stroke.written_word].append(word.typing_time)
 
+        # compute the weight of a word by the harmonic mean of its typing time. The harmonic mean has the property of
+        # aggravating the impact of small values and reducing the impact of larger values - so if the user generally
+        # types a word quickly, a single data point where the typing went slow wont have much of an impact.
         weight_by_word = {word: 1/sum(1/typing_time for typing_time in typing_times)
                           for word, typing_times in typing_times_by_word.items()}
         return weight_by_word
 
     def generate_exercise(self, exercise_settings):
+        """
+        Generates a new exercise (that is, a set of strokes) with the given settings, which determine what words from
+        "Learn Plover" exercises to include, and how many words an exercise consists of. Words are chosen so the ones
+        that the user is slowest at typing occur more frequently.
+
+        :param exercise_settings: settings for the exercise.
+        :return: a list of strokes.
+        """
         exercise_length = exercise_settings.exercise_size
         words_to_include = []
         for lesson in exercise_settings.enabled_lessons:
@@ -69,6 +96,10 @@ class StenoExerciseGenerator:
         # random_words = words_to_include  # just for testing chord parsing
 
         def parse_chords(stroke):
+            """ Parses a stroke in the plover dictionary. A stroke consists of multiple chords separated by "/". Every
+            chord consists of a sequence of letters in "Steno Order" (look it up in the Learn Plover series),
+            optionally including a "-" to indicate separation between the left and right half of the stenography
+            keyboard. """
             chords = []
             for chord in stroke.split("/"):
                 min_order = -1

@@ -12,7 +12,15 @@ class StenoMachinePreview(ttk.Frame):
     """
     Shows a steno machine view, highlighting the keys that should be pressed to complete the current word.
     """
-    def __init__(self, parent):
+    def __init__(self,
+                 parent,
+                 key_size=50,
+                 key_spacing=2):
+        """
+        :param parent: the parent widget.
+        :param key_size: size of keys on the keyboard preview.
+        :param key_spacing: spacing between keys on the keyboard preview.
+        """
         super().__init__(parent)
 
         self.canvas = tk.Canvas(self, width=800, height=200)
@@ -26,34 +34,21 @@ class StenoMachinePreview(ttk.Frame):
                           4.5, 5.5,  # EU
                           5, 6, 7, 8, 9]  # FPLTD/RBGSZ
 
-        assert column_offsets[StenoKeys.A.column] == 2.5
-        assert column_offsets[StenoKeys.E.column] == 4.5
-        assert column_offsets[StenoKeys.F_R.column] == 5
-
         for key in StenoKeys.__members__.values():
-            grid_x = column_offsets[key.column] * 50
-            grid_y = key.row * 50
-
-            begin_x = grid_x + 2
-            begin_y = grid_y + 2
-            end_x = grid_x + 48
-            end_y = grid_y + 48
-
-            if key == StenoKeys.S_L or key == StenoKeys.STAR:
-                end_y += 50
-
-            key_square = self.canvas.create_rectangle(begin_x, begin_y, end_x, end_y, fill='gray')
-            self.canvas.create_text((begin_x + end_x) * 0.5, (begin_y + end_y) * 0.5, text=key.letter)
+            x = column_offsets[key.column] * (key_size + key_spacing)
+            y = key.row * (key_size + key_spacing)
+            w = key_size
+            h = key_size if key not in (StenoKeys.S_L, StenoKeys.STAR) else key_size * 2 + key_spacing
+            key_square = self.canvas.create_rectangle(x, y, x + w, y + h, fill='gray')
+            self.canvas.create_text(x + w * 0.5, y + h * 0.5, text=key.letter)
             self.keys.append((key, key_square))
 
     def set_chord(self, chord: Chord):
         """
         Updates the preview to highlight the keys in the given chord.
         """
-
         for key, key_square in self.keys:
             self.canvas.itemconfigure(key_square, fill='yellow' if chord is not None and key in chord.keys else 'gray')
-
 
 
 class StenoExerciseFrame(ttk.Frame):
@@ -62,8 +57,6 @@ class StenoExerciseFrame(ttk.Frame):
     """
     def __init__(self, parent, listener):
         """
-        Setups the exercise frame.
-
         :param parent: the parent widget
         :param listener: object that will receive callbacks for exercise events.
         """
@@ -91,10 +84,17 @@ class StenoExerciseFrame(ttk.Frame):
         self.listener = listener
 
     class WordInExercise(ttk.Frame):
+        """ Handles a single word in the exercise. Has a label showing the word to type and an entry underneath that
+        text is entered into. The active entry/word is automatically changed when the previous word is finished. """
         def __init__(self,
                      exercise_frame,
                      index,
                      stroke):
+            """
+            :param exercise_frame: exercise frame the word belongs to
+            :param index: index of the word in the exerciseå
+            :param stroke: stroke for the word, that is the chords to type it as well as the actual written word
+            """
             super().__init__(exercise_frame, style="Exercise.TFrame")
 
             self.exercise_frame = exercise_frame
@@ -112,7 +112,7 @@ class StenoExerciseFrame(ttk.Frame):
                                          width=len(self.text_to_type),  # assign width based on label width
                                          font=('Monospace', 16))
             self._text_entry.pack(anchor="w")
-            self._text_entry_var_trace_name = self._text_entry_var.trace_add("write", self._on_change)
+            self._text_entry_var.trace_add("write", self._on_change)
 
             self.incorrectly_typed = False
             self.finished = False
@@ -125,51 +125,70 @@ class StenoExerciseFrame(ttk.Frame):
             preceded by a whitespace."""
             return f" {self.stroke.written_word}"
 
-        @property
-        def is_active(self):
-            return self.index == self.exercise_frame.word_i
-
         def begin(self):
+            """
+            Called when this word is focused, will enable changing the text and show a preview of the chord to press.
+            """
             self.exercise_frame.word_i = self.index
             self._text_entry.config(state=tk.NORMAL)
             self._show_chord_preview()
             self.resume()
 
         def pause(self):
+            """
+            Called when the settings menu is opened while this word is active.
+            """
             pass
 
         def resume(self):
+            """
+            Called when the settings menu is closed while this word is active, will re-focus the text entry.
+            """
             self._text_entry.focus()
             self._text_entry.icursor(len(self._text_entry_var.get()))
 
         def _on_change(self, *_):
+            """
+            Called by tkinter when the contents of the text entry is updated.
+            """
             self.on_contents_update()
 
         def _show_chord_preview(self):
+            """ Shows the chord to use to type this word in the preview. """
             self.exercise_frame.listener.set_chord_preview(self.stroke.chord_sequence[0])
 
         def _on_completely_typed(self):
+            """ Called when this word is completely typed, will set the finish time accordingly and show the preview
+            of the next word. """
             self.finish_time = time.monotonic()
             self.finished = True
             if self._has_next_word:
                 self._next_word._show_chord_preview()
             else:
-                self._show_chord_preview()
+                self.exercise_frame.listener.set_chord_preview(None)
 
         def _on_incorrectly_typed(self):
+            """ Called whenever this word is typed incorrectly, affects how it is treated in the exercise log.
+            (Mistyped words do not count towards the average time it takes to type a word). """
             self.incorrectly_typed = True
             self.finished = False
             self._show_chord_preview()
 
         @property
         def _has_next_word(self):
+            """ Determines whether there is a next word after this in the exercise. """
             return self.index + 1 < len(self.exercise_frame.words)
 
         @property
         def _next_word(self):
+            """ Returns the next word after this, if there is none raises IndexError. """
             return self.exercise_frame.words[self.index + 1]
 
         def on_contents_update(self):
+            """
+            Called when the contents of the text entry is changed, either because of direct text entry, or because of
+            excess text entered in the entry of the previous word in the exercise.
+            """
             new_contents = self._text_entry_var.get()
             is_last = self.index + 1 == len(self.exercise_frame.words)
 
@@ -187,7 +206,7 @@ class StenoExerciseFrame(ttk.Frame):
             # word.
             advance_to_next_word = completely_typed and remaining_chars_to_type <= 0 or is_last
 
-            if not correctly_typed:
+            if not correctly_typed:  # mark the word as incorrectly typed when it is
                 self._on_incorrectly_typed()
             elif completely_typed:
                 if not self.finished:
@@ -206,14 +225,18 @@ class StenoExerciseFrame(ttk.Frame):
                             next_word.set_overflown_content(overflown_content)
                             next_word.begin()
 
-            if not advance_to_next_word:
+            if not advance_to_next_word:  # update the width of the entry to reflect the width of the entered text.
                 self._text_entry.configure(width=max(len(self.text_to_type), len(self._text_entry_var.get())))
 
         def set_overflown_content(self, contents_to_set):
+            """ Called when the text entered into the entry of the previous exercise flows over into the entry of this word. """
             self._text_entry_var.set(contents_to_set)
             self.on_contents_update()
 
     def _on_finish_exercise(self):
+        """ Called by the final word in the exercise when it is finished.
+        Calculates the typing time for each word and reports to the main application class that the exercise is finished.
+        """
         word_results = []
         last_time = self.exercise_begin_time
         for word in self.words:
@@ -223,9 +246,11 @@ class StenoExerciseFrame(ttk.Frame):
         self.listener.finish_exercise(exercise_result)
 
     def pause_exercise(self):
+        """ Called to pause the exercise when the settings menu is opened. """
         self.words[self.word_i].pause()
 
     def resume_exercise(self):
+        """ Called to resume the exercise when the settings menu is closed. """
         self.words[self.word_i].resume()
 
     def set_exercise(self, strokes):
@@ -248,17 +273,22 @@ class StenoExerciseFrame(ttk.Frame):
 
 
 class StenoExerciseSettingsDialog(tk.Toplevel):
+    """
+    Settings dialog that allows changing the length of exercises, the lessons that appear in an exercise,
+    and clearing the history of past exercises.
+    """
     def __init__(self, parent, listener, initial_settings):
         super(StenoExerciseSettingsDialog, self).__init__(parent)
         self.title("Update exercise settings")
-
-        self.transient(parent)
         self.parent = parent
         self.listener = listener
+
+        # needed for this toplevel to behave as a dialog.
+        self.transient(parent)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
-        self.initial_settings = initial_settings
 
+        self.initial_settings = initial_settings
         exercise_size_frame = ttk.Frame(self)
         ttk.Label(exercise_size_frame, text="Length of exercises").pack(side="left")
         self.exercise_size_var = tk.StringVar(self, value=str(initial_settings.exercise_size))
@@ -272,6 +302,7 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
 
         checkboxes_wrapping_frame = ttk.Frame(self)
 
+        # create a checkbox for each plover lesson that may be toggled on or off
         for row, plover_lesson in enumerate(learn_plover_lessons):
             var = tk.IntVar(self, 1 if plover_lesson in initial_settings.enabled_lessons else 0)
             label = ttk.Label(checkboxes_wrapping_frame, text=plover_lesson)
@@ -289,25 +320,30 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
         tk.Button(self, text="Cancel", command=self._on_cancel).pack(side='left')
 
     def _on_clear_history(self):
+        """ Called when the "Clear exercise history" button is closed. """
         self.listener.on_settings_dialog_clear_history()
         self.history_cleared = True
 
     def _on_ok(self):
+        """ Called when the "OK" button is pressed, will report the new settings to the application class. """
         new_settings = ExerciseSettings(self.exercise_size, self.enabled_lessons)
         settings_changed = new_settings != self.initial_settings
         self._close()
         self.listener.on_settings_dialog_close(settings_changed or self.history_cleared, settings_changed, new_settings)
 
     def _on_cancel(self):
+        """ Called when the "OK" button is pressed, will report that the dialog is closed to the application class. """
         self._close()
         self.listener.on_settings_dialog_close(self.history_cleared, False, None)
 
     def _close(self):
+        """ Called whenever the dialog is closed, by the window manager or by OK/Cancel buttons. """
         self.parent.focus_set()
         self.destroy()
 
     @property
     def exercise_size(self):
+        """ The configured size of exercises. """
         try:
             return max(1, int(self.exercise_size_entry.get()))
         except ValueError:
@@ -315,4 +351,5 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
 
     @property
     def enabled_lessons(self):
+        """ List of the names of enabled lessons. """
         return [lesson for lesson, var in self.lesson_checkboxes if var.get()] or ["One Syllable Words"]
