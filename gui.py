@@ -33,7 +33,7 @@ class StenoApplication(tk.Tk):
         except (json.JSONDecodeError, IOError):
             self.current_settings = ExerciseSettings(20, learn_plover_lessons)
 
-        self.exercise_generator = StenoExerciseGenerator("data/main.json", "output/log.json")
+        self.exercise_generator = StenoExerciseGenerator(Path("data/main.json"), Path("output/log.json"))
 
         self.exercise_settings_button = tk.Button(self,
                                                   text="Exercise Settings...",
