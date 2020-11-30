@@ -24,7 +24,7 @@ class StenoApplication(tk.Tk):
 
         self._json_converter = TupleToJsonObjectConverter()
 
-        self._settings_path = Path("output/config.json")
+        self._settings_path = Path("output", "config.json")
 
         # Attempt to load settings, setting defaults if loading fails due to missing or corrupt settings file
         try:
@@ -33,7 +33,7 @@ class StenoApplication(tk.Tk):
         except (json.JSONDecodeError, IOError):
             self.current_settings = ExerciseSettings(20, learn_plover_lessons)
 
-        self.exercise_generator = StenoExerciseGenerator(Path("data/main.json"), Path("output/log.json"))
+        self.exercise_generator = StenoExerciseGenerator(Path("data", "main.json"), Path("output", "log.json"))
 
         self.exercise_settings_button = tk.Button(self,
                                                   text="Exercise Settings...",
