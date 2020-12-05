@@ -2,6 +2,7 @@ import tkinter as tk
 import tkinter.ttk as ttk
 from datetime import datetime
 import time
+import webbrowser
 
 from steno_keys import StenoKeys, Chord
 from exercise_log import ExerciseResult, ExerciseWordResult, ExerciseSettings
@@ -190,7 +191,6 @@ class StenoExerciseFrame(ttk.Frame):
             excess text entered in the entry of the previous word in the exercise.
             """
             new_contents = self._text_entry_var.get()
-            is_last = self.index + 1 == len(self.exercise_frame.words)
 
             n_typed_chars = len(new_contents)
             # correctly_typed reflects whether the contents so far is typed correctly,
@@ -204,7 +204,7 @@ class StenoExerciseFrame(ttk.Frame):
             completely_typed = correctly_typed and remaining_chars_to_type <= 1
             # we advance to the next word once the first whitespace after this word is received, or if this is the last
             # word.
-            advance_to_next_word = completely_typed and remaining_chars_to_type <= 0 or is_last
+            advance_to_next_word = completely_typed and remaining_chars_to_type <= 0 or not self._has_next_word
 
             if not correctly_typed:  # mark the word as incorrectly typed when it is
                 self._on_incorrectly_typed()
@@ -213,22 +213,21 @@ class StenoExerciseFrame(ttk.Frame):
                     self._on_completely_typed()
                 if advance_to_next_word:
                     overflown_content = new_contents[len(self.text_to_type):]
-                    if len(overflown_content) > 0 and is_last:
+                    if len(overflown_content) > 0 and not self._has_next_word:
                         self.incorrectly_typed = True
                     else:
                         self._text_entry_var.set(self.text_to_type)
-                        if is_last:
+                        if not self._has_next_word:
                             self.exercise_frame._on_finish_exercise()
                         else:
                             self._text_entry.config(state=tk.DISABLED)
-                            next_word = self.exercise_frame.words[self.index + 1]
-                            next_word.set_overflown_content(overflown_content)
-                            next_word.begin()
+                            self._next_word._set_overflown_content(overflown_content)
+                            self._next_word.begin()
 
             if not advance_to_next_word:  # update the width of the entry to reflect the width of the entered text.
                 self._text_entry.configure(width=max(len(self.text_to_type), len(self._text_entry_var.get())))
 
-        def set_overflown_content(self, contents_to_set):
+        def _set_overflown_content(self, contents_to_set):
             """ Called when the text entered into the entry of the previous exercise flows over into the entry of this word. """
             self._text_entry_var.set(contents_to_set)
             self.on_contents_update()
@@ -278,7 +277,15 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
     and clearing the history of past exercises.
     """
     def __init__(self, parent, listener, initial_settings):
+        """
+        Opens the dialog.
+
+        :param parent: the parent window.
+        :param listener: listener that will be notified when the dialog is closed.
+        :param initial_settings: the current exercise settings.
+        """
         super(StenoExerciseSettingsDialog, self).__init__(parent)
+
         self.title("Update exercise settings")
         self.parent = parent
         self.listener = listener
@@ -326,7 +333,12 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
 
     def _on_ok(self):
         """ Called when the "OK" button is pressed, will report the new settings to the application class. """
-        new_settings = ExerciseSettings(self.exercise_size, self.enabled_lessons)
+        try:
+            exercise_size = max(1, int(self.exercise_size_entry.get()))
+        except ValueError:
+            exercise_size = self.initial_settings.exercise_size
+        enabled_lessons = [lesson for lesson, var in self.lesson_checkboxes if var.get()] or ["One Syllable Words"]
+        new_settings = ExerciseSettings(exercise_size, enabled_lessons)
         settings_changed = new_settings != self.initial_settings
         self._close()
         self.listener.on_settings_dialog_close(settings_changed or self.history_cleared, settings_changed, new_settings)
@@ -341,15 +353,88 @@ class StenoExerciseSettingsDialog(tk.Toplevel):
         self.parent.focus_set()
         self.destroy()
 
-    @property
-    def exercise_size(self):
-        """ The configured size of exercises. """
-        try:
-            return max(1, int(self.exercise_size_entry.get()))
-        except ValueError:
-            return self.initial_settings.exercise_size
 
-    @property
-    def enabled_lessons(self):
-        """ List of the names of enabled lessons. """
-        return [lesson for lesson, var in self.lesson_checkboxes if var.get()] or ["One Syllable Words"]
+class WelcomeDialog(tk.Toplevel):
+    """
+    Dialog that is shown on start to instruct the user on how to use the program.
+    """
+    def __init__(self, parent, listener):
+        """
+        Opens the dialog.
+
+        :param parent: the parent window
+        :param listener: listener that will be notified when the dialog is closed.
+        """
+        super(WelcomeDialog, self).__init__(parent, background="white")
+        self.title("Update exercise settings")
+        self.parent = parent
+        self.listener = listener
+
+        # needed for this toplevel to behave as a dialog.
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self._close)
+
+        self.text = tk.Text(self, wrap=tk.WORD, borderwidth=0, highlightthickness=0)
+        self.text.insert(tk.END, "Welcome! This is a training program for the Plover stenography system. To use it, "
+                                 "you should begin with installing ")
+        plover_link = tk.Label(self, text="Plover", fg="blue", bg="white")
+        plover_link.bind("<Button-1>", self._on_plover_label_click)
+        self.text.window_create(tk.INSERT, window=plover_link)
+
+        self.text.insert(tk.END, ". Then you can start to type the suggested words using a stenography keyboard."
+                                 "\n\n"
+                                 "The exercises presented are generated randomly, and are based on the lessons in the ")
+
+        learn_plover_link = tk.Label(self, text="Learn Plover", fg="blue", bg="white")
+        learn_plover_link.bind("<Button-1>", self._on_learn_plover_label_click)
+        self.text.window_create(tk.INSERT, window=learn_plover_link)
+
+        self.text.insert(tk.END, " series. You should, if you do not have prior Plover experience, read the "
+                                 "corresponding chapters in the series before attempting the related exercises. "
+                                 "You may select the parts of the Learn Plover series that should be included in "
+                                 "\"Exercise Settings\", where you can also select how many words to include in an "
+                                 "exercise. "
+                                 "\n\n"
+                                 "As you finish exercises, the time it takes to type the words are logged, and "
+                                 "used to generate new exercises. You may find that words you type the slowest will "
+                                 "occur more frequently."
+                                 "\n\n"
+                                 "For each word in an exercise, the first chord used to type the word is shown in the "
+                                 "stenography keyboard preview. If you do not have a stenography keyboard available, "
+                                 "you can also try the program with a regular keyboard. Then you should type a space "
+                                 "before each word (this is the way Plover emits words by default)."
+                                 "\n\n"
+                                 "Good luck!")
+
+        self.text.config(state=tk.DISABLED)
+        self.text.pack()
+
+        self.do_not_show_again_var = tk.IntVar(self)
+
+        self.do_not_show_again_checkbox = tk.Checkbutton(self,
+                                                         text="Do not show this again",
+                                                         bg="white",
+                                                         borderwidth=0,
+                                                         highlightthickness=0,
+                                                         variable=self.do_not_show_again_var)
+        self.do_not_show_again_checkbox.pack(side="left")
+
+        tk.Button(self, text="OK", command=self._close).pack(side="right")
+
+    @staticmethod
+    def _on_plover_label_click(*_):
+        """ Called when the "Plover" text is clicked, will open the Plover homepage in a web browser. """
+        webbrowser.open_new("http://www.openstenoproject.org/plover/")
+
+    @staticmethod
+    def _on_learn_plover_label_click(*_):
+        """ Called when the "Learn Plover" text is clicked, will open the main page of the Learn Plover series in a
+        web browser. """
+        webbrowser.open_new("https://sites.google.com/site/learnplover/")
+
+    def _close(self):
+        """ Called whenever the dialog is closed, by the window manager or by the OK button. """
+        self.parent.focus_set()
+        self.destroy()
+        self.listener.on_welcome_dialog_close(not self.do_not_show_again_var.get())

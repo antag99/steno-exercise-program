@@ -31,6 +31,14 @@ Exercise settings.
 """
 ExerciseSettings = namedtuple("ExerciseSettings", "exercise_size enabled_lessons")
 
+"""
+Application settings, both settings for exercises and general settings.
+
+:param exercise_settings: settings for exercises.
+:param show_welcome_dialog: whether to show a welcome dialog.
+"""
+ApplicationSettings = namedtuple("ApplicationSettings", "exercise_settings show_welcome_dialog")
+
 
 class TupleToJsonObjectConverter:
     """
@@ -38,13 +46,16 @@ class TupleToJsonObjectConverter:
     ExerciseResult and ExerciseSettings to a serializable form.
     """
     def __init__(self):
+        """ Initializes the converter with a default tuple field type mapping. (That is, a mapping between the type of
+        a namedtuple and the types of its elements.) """
         # mapping of tuple types to the type of their fields.
         self.tuple_field_types = {
             Stroke: [List[Chord], str],
             Chord: [List[StenoKeys]],
             ExerciseResult: [datetime, List[ExerciseWordResult]],
             ExerciseWordResult: [Stroke, bool, float],
-            ExerciseSettings: [int, List[str]]
+            ExerciseSettings: [int, List[str]],
+            ApplicationSettings: [ExerciseSettings, bool]
         }
 
     def from_json_object(self, object, object_type):

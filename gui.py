@@ -4,8 +4,8 @@ from learn_plover import *
 import json
 from pathlib import Path
 
-from ui_elements import StenoMachinePreview, StenoExerciseFrame, StenoExerciseSettingsDialog
-from exercise_log import TupleToJsonObjectConverter, ExerciseSettings
+from ui_elements import StenoMachinePreview, StenoExerciseFrame, StenoExerciseSettingsDialog, WelcomeDialog
+from exercise_log import TupleToJsonObjectConverter, ExerciseSettings, ApplicationSettings
 from exercise_generator import StenoExerciseGenerator
 
 
@@ -18,6 +18,8 @@ class StenoApplication(tk.Tk):
     as well as allowing for configuration changes via a menu accessible via a button.
     """
     def __init__(self):
+        """ Constructs the main application frame, reading user settings, exercise history and the stenography
+        dictionary. Will also generate an initial exercise and show the welcome dialog if applicable. """
         super(StenoApplication, self).__init__()
 
         self.configure(background="white")
@@ -29,9 +31,9 @@ class StenoApplication(tk.Tk):
         # Attempt to load settings, setting defaults if loading fails due to missing or corrupt settings file
         try:
             with open(self._settings_path) as f:
-                self.current_settings = self._json_converter.from_json_object(json.load(f), ExerciseSettings)
-        except (json.JSONDecodeError, IOError):
-            self.current_settings = ExerciseSettings(20, learn_plover_lessons)
+                self.current_settings = self._json_converter.from_json_object(json.load(f), ApplicationSettings)
+        except BaseException:
+            self.current_settings = ApplicationSettings(ExerciseSettings(20, learn_plover_lessons), True)
 
         self.exercise_generator = StenoExerciseGenerator(Path("data", "main.json"), Path("output", "log.json"))
 
@@ -49,6 +51,23 @@ class StenoApplication(tk.Tk):
 
         self._generate_exercise()
 
+        if self.current_settings.show_welcome_dialog:
+            WelcomeDialog(self, self)
+
+    def _save_application_settings(self):
+        """ Saves the current application settings to the file system. """
+        self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._settings_path, "w") as f:
+            json.dump(self._json_converter.to_json_object(self.current_settings, ApplicationSettings), f)
+
+    def on_welcome_dialog_close(self, show_welcome_dialog_setting):
+        """
+        Called by the welcome dialog when it is closed.
+        :param show_welcome_dialog_setting: whether to show the welcome dialog on next startup.
+        """
+        self.current_settings = ApplicationSettings(self.current_settings.exercise_settings, show_welcome_dialog_setting)
+        self._save_application_settings()
+
     def on_settings_dialog_close(self,
                                  regenerate_exercise,
                                  settings_changed,
@@ -62,10 +81,8 @@ class StenoApplication(tk.Tk):
         :param new_settings: the new settings, or None if not changed.
         """
         if settings_changed:
-            self.current_settings = new_settings
-            self._settings_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._settings_path, "w") as f:
-                json.dump(self._json_converter.to_json_object(self.current_settings, ExerciseSettings), f)
+            self.current_settings = ApplicationSettings(new_settings, self.current_settings.show_welcome_dialog)
+            self._save_application_settings()
         if regenerate_exercise:
             self._generate_exercise()
         else:
@@ -89,11 +106,11 @@ class StenoApplication(tk.Tk):
     def _open_settings_dialog(self):
         """ Called when the button to open the settings dialog is pressed. """
         self.exercise_frame.pause_exercise()
-        StenoExerciseSettingsDialog(self, self, self.current_settings)
+        StenoExerciseSettingsDialog(self, self, self.current_settings.exercise_settings)
 
     def _generate_exercise(self):
         """ Generates a new exercise and shows it in the exercise frame. """
-        self.exercise_frame.set_exercise(self.exercise_generator.generate_exercise(self.current_settings))
+        self.exercise_frame.set_exercise(self.exercise_generator.generate_exercise(self.current_settings.exercise_settings))
 
 
 if __name__ == "__main__":

@@ -17,6 +17,11 @@ class StenoExerciseGenerator:
     def __init__(self,
                  steno_dict_path,
                  user_log_path):
+        """
+        :param steno_dict_path: path to the Plover stenography dictionary (in JSON format).
+        :param user_log_path: path to the user log, where results from previous exercise sessions are stored
+        (will be created if it does not already exist).
+        """
 
         with open(steno_dict_path, "r") as f:
             self.steno_dict = json.load(f)
